@@ -78,14 +78,26 @@ inline void shutdownUSART() {
 // Sends a serial byte and waits for it to be fully transmitted
 // assumes any previous transmission already complete
 
+inline void sendbyte( unsigned char b ) {
+		
+	UDR = b;		// Start sending....
+	
+	while (!(UCSRA & _BV(UDRE)));		// Wait for it to be fully transmitted
+			
+}
+
+
+// Sends a serial byte and waits for it to be fully transmitted
+// assumes any previous transmission already complete
+
 inline void sendbytefully( unsigned char b ) {
 	
-	UCSRA &= ~ _BV(TXC);				// CLear the Transmit complete flag
-		
-	UDR = b;		// Start sedning....
+	UCSRA ^= _BV(TXC);				// CLear the Transmit complete flag by writing a 1 to it (datasheet 14.10.2)
 	
+	sendbyte(b);
+
 	while (!(UCSRA & _BV(TXC)));		// Wait for it to be fully transmitted
-			
+	
 }
 
 
@@ -105,87 +117,42 @@ void init0(void) {
 		
 	asm( "eor	r1, r1" : : ); // Clear out "zero_reg" becuase c expects it to always be zero
 	
-	initUSART();
-	
-	sendbytefully(0xEE);		// STX
-	
-	sendbytefully(0xEE);		// STX
-	
-	DDRB = _BV(7) | _BV(6);
-	
-	x = testblock;
-	
-	unsigned char match = 1;
-	
-	for(unsigned int r=0; r<TEST_BLOCK_SIZE;r++) {		// Loop though the bytes in each 4 byte long pattern
-		
-		if ( *(x++) != r ) {
-			
-			match = 0;
-			
-			PINB = _BV(6);
-			
-		} else {
-			
-			PINB = _BV(7);
-		}
-		
-		_delay_ms(10);
-		PINB = 0x00;
-		_delay_ms(10);
-					
-	}
-
-	sendbytefully(0xEE);		// STX
-	
-	UCSRB = 0x00; // Disable transmitter
-		
-	if (match) {
-		
-		PINB = _BV(7);
-		
-	} else {
-		
-		PINB = _BV(6);
-	}
-	
-	
-	
-	x = testblock;
-	
-	for(unsigned int r=0; r<TEST_BLOCK_SIZE;r++) {		// Loop though the bytes in each 4 byte long pattern
-		
-		*(x++) = r;
-		
-	}
-	
-	 MCUCR = _BV( SE ) | _BV(SM1 ) | _BV(SM0); // Sleep enable (makes sleep instruction work), and sets sleep mode to "Power Down" (the deepest sleep)
-	 
-	 asm("sleep");
-	
-	
-	_delay_ms(1000);			// Give relays a chance to settle down before sending data
+	DDRB = _BV(7) | _BV(6);		// Enable diagnostic LEDs - GREEN on pin 19, RED on pin 18
+	PINB = _BV(7) | _BV(6);		// Turn them both on for a second while we send STX as test check 	
 	
 	initUSART();
 	
 	sendbytefully(0xEE);		// STX
-
-	sendbytefully(0xEE);		// STX
 	
-		
+	sendbytefully(0xEE);		// STX	
+	
+	PINB = 0x00;
+			
 	// send current contents of the test block out the serial port...
 		
 	x = testblock;
+	
+	unsigned char match = 1;	// Assume a match
 	
 	for(unsigned int r=0; r<TEST_BLOCK_SIZE;r++) {		// Loop though the bytes in each 4 byte long pattern 
 		
 		unsigned char b = *(x++) ; 
 		
+		if (b==r) {					// Light diagnostic LED
+			PINB = _BV(7);
+		} else {
+			PINB = _BV(6);
+			match=0;				// remember that we missed a byte
+		}
+		
 		sendbytefully( b );
+
+		PINB = 0;		// Turn off LED (it was on long enough durring the Serial send
 		
 		checksum ^= b; 
 		
 		_delay_ms(10);			// Seems like Ardunio softserial receiver needs this to breath...
+		
 		
 	}
 	
@@ -201,14 +168,25 @@ void init0(void) {
 		
 	}
 	
-	// DOn't send ETX until we have written data for next pass so we won't get turned off too soon...
+	// Don't send ETX until we have written data for next pass so we won't get turned off too soon...
 
 	sendbytefully(0x55);		// ETX
 		
 	sendbytefully(0x55);		// ETX
+	
+	// Controller should wait a couple of milliseconds after getting final ETX to make sure we have time to shutdown the USART
+	// because it seems like if we leave it on then the SRAM expires much more quickly. 
 			
 	shutdownUSART();
 	
+	_delay_ms(500);
+	
+	if (match) {					// Light diagnostic LED for final verdict
+		PINB = _BV(7);
+		} else {
+		PINB = _BV(6);
+	}
+		
 	//Done, so halt and wait to be shutdown
 	
 	 MCUCR = _BV( SE ) | _BV(SM1 ) | _BV(SM0); // Sleep enable (makes sleep instruction work), and sets sleep mode to "Power Down" (the deepest sleep)
