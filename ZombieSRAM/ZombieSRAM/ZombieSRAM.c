@@ -52,7 +52,7 @@ FUSES = {
 
 inline void initUSART() 
 {
-	
+	return;
 	  //set the baud rate
 	
 	  UBRRH = 0;
@@ -68,9 +68,8 @@ inline void initUSART()
 }
 
 inline void shutdownUSART() {
-	  
 	  // disable transmitter
-	  
+	  return;
 	  UCSRB = 0;
 	
 }
@@ -79,7 +78,7 @@ inline void shutdownUSART() {
 // assumes any previous transmission already complete
 
 inline void sendbyte( unsigned char b ) {
-		
+	return;
 	UDR = b;		// Start sending....
 	
 	while (!(UCSRA & _BV(UDRE)));		// Wait for it to be fully transmitted
@@ -91,7 +90,7 @@ inline void sendbyte( unsigned char b ) {
 // assumes any previous transmission already complete
 
 inline void sendbytefully( unsigned char b ) {
-	
+	return;
 	UCSRA ^= _BV(TXC);				// CLear the Transmit complete flag by writing a 1 to it (datasheet 14.10.2)
 	
 	sendbyte(b);
@@ -118,20 +117,22 @@ void init0(void) {
 	asm( "eor	r1, r1" : : ); // Clear out "zero_reg" becuase c expects it to always be zero
 	
 	DDRB = _BV(7) | _BV(6);		// Enable diagnostic LEDs - GREEN on pin 19, RED on pin 18
-	PINB = _BV(7) | _BV(6);		// Turn them both on for a second while we send STX as test check 	
-	
+	PORTB = _BV(7) | _BV(6);		// Turn them both on for a second while we send STX as test check 	
+		
 	initUSART();
 	
+	_delay_ms(100);		// Let serial port settle down...
+		
 	sendbytefully(0xEE);		// STX
 	
 	sendbytefully(0xEE);		// STX	
 	
-	PINB = 0x00;
+	PORTB = 0x00;
 			
 	// send current contents of the test block out the serial port...
 		
 	x = testblock;
-	
+	                    
 	unsigned char match = 1;	// Assume a match
 	
 	for(unsigned int r=0; r<TEST_BLOCK_SIZE;r++) {		// Loop though the bytes in each 4 byte long pattern 
@@ -139,22 +140,25 @@ void init0(void) {
 		unsigned char b = *(x++) ; 
 		
 		if (b==r) {					// Light diagnostic LED
-			PINB = _BV(7);
+			PORTB = _BV(7);
 		} else {
-			PINB = _BV(6);
+			PORTB = _BV(6);
 			match=0;				// remember that we missed a byte
 		}
 		
 		sendbytefully( b );
-
-		PINB = 0;		// Turn off LED (it was on long enough durring the Serial send
 		
 		checksum ^= b; 
 		
-		_delay_ms(10);			// Seems like Ardunio softserial receiver needs this to breath...
+		_delay_ms(5);			// Seems like Ardunio softserial receiver needs this to breath...
+		
+		PORTB = 0x00;
+		
+		_delay_ms(5);			// Seems like Ardunio softserial receiver needs this to breath...
 		
 		
 	}
+	
 	
 	sendbytefully(checksum);
 			
@@ -182,9 +186,9 @@ void init0(void) {
 	_delay_ms(500);
 	
 	if (match) {					// Light diagnostic LED for final verdict
-		PINB = _BV(7);
+		PORTB = _BV(7);
 		} else {
-		PINB = _BV(6);
+		PORTB = _BV(6);
 	}
 		
 	//Done, so halt and wait to be shutdown
@@ -195,102 +199,8 @@ void init0(void) {
 		
 }
 
-
-// Put any code you want to run once on power-up here....
-// Any global variables set in this routine will persist to the WatchDog routine
-// Note that I/O registers are initialized on every WatchDog reset the need to be updated inside userWakeRountine()
- 
-// This is "static inline" so The code will just be inserted directly into the main() code avoiding overhead of a call/ret
- 
-static inline void userStartup(void) {
- 
- // Your start-up code here....
- 
-}
- 
 // Main() only gets run once, when we first power up
  
 int main(void)
 {
-	
-DDRD = 0x03;
-	
-while(1) {
-
-	PORTD = 0x00;
-	
-	_delay_ms(200);
-	
-	PORTD = 0x01;
-	
-	_delay_ms(200);
-	
-	PORTD = 0x02;
-	
-	_delay_ms(200);
-	
 }
-
-
-	
- userStartup();   // Do this first, because if we turned on WDT first it might reset on us
- wdt_enable(WDTO_15MS); // Could do this slightly more efficiently in ASM, but we only do it one time- when we first power up
- // The delay set here only matters for the first time we reset to get things started, so we set it to the shortest available so we don't wait to wait too long...
- // In warmstart we will set it recurring timeout.
- 
- // Note that we could save a tiny ammount of time if we RJMPed right into the warmstart() here, but that
- // could introduce a little jitter since the timing would be different on the first pass. Better to
- // always enter warmstart from exactly the same reset state for consistent timing.
- 
- MCUCR = _BV( SE ) | _BV(SM1 ) | _BV(SM0); // Sleep enable (makes sleep instruction work), and sets sleep mode to "Power Down" (the deepest sleep)
- 
- asm("sleep");
- 
- // we should never get here
- 
-}
- 
-// Put any code you want to run on every wake up here....
-// Any global variables used in this routine will persist
-// All I/O Registers are reset to their initial values (per the datasheet) everytime we wake up
-// If you plan to do work for longer than the WatchDog timer, then you need to do a WatchDogReset (WDR) occasionally to keep the timer from expiring on you. Note that this can add jitter if consistant timing is important.
- 
-// This is "static inline" so The code will just be inserted directly into the warmstart code avoiding overhead of a call/ret
- 
-static inline void userWakeRoutine(void) {
- 
- // Just for testing, lets twiddle PORTD0 bit on and off with a little delay between...
- 
- DDRD |= _BV(0);   // Note that we can't do this in startup because IO registers get cleared everytime we reset
- PORTD |= _BV(0);
- 
- for( unsigned x=0; x<100;x++ ) {asm("nop");}
- 
- PORTD &= ~_BV(0);
- 
-}
- 
-void __attribute__ ((naked)) warmstart(void) {
- 
- // Set the timeout to the desired value. Do this first because by default right now it will be at the initial value of 16ms
- // which might not be long enough for us to do what we need to do.
- 
- 
- 
-WDTCR = _BV( WDP1) | _BV( WDP0) ; // This sets a 125ms timeout. See the table of timeout values in the datasheet. Note that you can delete this line completely if you want the default 16ms timeout.
- 
-// Now do whatever the user wants...
- 
- userWakeRoutine();
- 
- // Now it is time to get ready for bed. We should have gotten here because there was just a WDT reset, so...
- // By default after any reset, the watchdog timeout will be 16ms since the WDP bits in WDTCSR are set to zero on reset. We'd need to set the WDTCSR if we want a different timeout
- // After a WDT reset, the WatchDog should also still be on by default because the WDRF will be set after a WDT reset, and "WDE is overridden by WDRF in MCUSR. See “MCUSR – MCU Status Register” on page 45for description of WDRF. This means thatWDE is always set when WDRF is set."
- 
- MCUCR = _BV( SE ) | _BV(SM1 ) | _BV(SM0); // Sleep enable (makes sleep instruction work), and sets sleep mode to "Power Down" (the deepest sleep)
- 
- asm("sleep");
- 
- // we should never get here
- 
- }
