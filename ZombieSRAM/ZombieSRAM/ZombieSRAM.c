@@ -52,7 +52,6 @@ FUSES = {
 
 inline void initUSART() 
 {
-	return;
 	  //set the baud rate
 	
 	  UBRRH = 0;
@@ -69,28 +68,25 @@ inline void initUSART()
 
 inline void shutdownUSART() {
 	  // disable transmitter
-	  return;
 	  UCSRB = 0;
 	
 }
 
-// Sends a serial byte and waits for it to be fully transmitted
-// assumes any previous transmission already complete
+// Sends a serial byte 
 
-inline void sendbyte( unsigned char b ) {
-	return;
-	UDR = b;		// Start sending....
+static inline void sendbyte( unsigned char b ) {
 	
-	while (!(UCSRA & _BV(UDRE)));		// Wait for it to be fully transmitted
-			
+	while (!(UCSRA & _BV(UDRE)));		// Wait for buffer to be clear from last byte
+	
+	UDR = b;		// Start sending....
+				
 }
 
 
 // Sends a serial byte and waits for it to be fully transmitted
 // assumes any previous transmission already complete
 
-inline void sendbytefully( unsigned char b ) {
-	return;
+static inline void sendbytefully( unsigned char b ) {
 	UCSRA ^= _BV(TXC);				// CLear the Transmit complete flag by writing a 1 to it (datasheet 14.10.2)
 	
 	sendbyte(b);
@@ -114,25 +110,32 @@ void init0(void) {
 	
 	unsigned char checksum = 0;
 		
-	asm( "eor	r1, r1" : : ); // Clear out "zero_reg" becuase c expects it to always be zero
+	asm( "eor	r1, r1" : : );	// Clear out "zero_reg" becuase c expects it to always be zero
+								// We need this becuase we are running before the normal C startup code 
+								// that would normaly take care of this
 	
 	DDRB = _BV(7) | _BV(6);		// Enable diagnostic LEDs - GREEN on pin 19, RED on pin 18
-	PORTB = _BV(7) | _BV(6);		// Turn them both on for a second while we send STX as test check 	
+	PORTB = _BV(7) | _BV(6);	// Turn them both on for a second while we send STX as test check 
 		
 	initUSART();
 	
 	_delay_ms(100);		// Let serial port settle down...
 		
-	sendbytefully(0xEE);		// STX
+	sendbyte(0xEE);		// STX
 	
-	sendbytefully(0xEE);		// STX	
+	_delay_ms(50);
+	
+	sendbyte(0xEE);		// STX	
+
+	_delay_ms(50);
+
 	
 	PORTB = 0x00;
 			
 	// send current contents of the test block out the serial port...
 		
 	x = testblock;
-	                    
+		                    
 	unsigned char match = 1;	// Assume a match
 	
 	for(unsigned int r=0; r<TEST_BLOCK_SIZE;r++) {		// Loop though the bytes in each 4 byte long pattern 
@@ -146,35 +149,41 @@ void init0(void) {
 			match=0;				// remember that we missed a byte
 		}
 		
-		sendbytefully( b );
+		sendbyte( b );
 		
 		checksum ^= b; 
-		
-		_delay_ms(5);			// Seems like Ardunio softserial receiver needs this to breath...
-		
-		PORTB = 0x00;
-		
-		_delay_ms(5);			// Seems like Ardunio softserial receiver needs this to breath...
+						
+		_delay_ms(20);			// Seems like Ardunio softserial receiver needs this to breath...
 		
 		
 	}
 	
 	
-	sendbytefully(checksum);
+	sendbyte(checksum);
+	
+	_delay_ms(20);
 			
-	// Reload the test pattern for next pass...
+	// Reload the test pattern for next run...
 
 	x = testblock;
 			
-	for(unsigned int r=0; r<TEST_BLOCK_SIZE;r++) {		// Loop though the bytes in each 4 byte long pattern
+	for(unsigned int r=0; r<TEST_BLOCK_SIZE;r++) {		// Loop though the bytes 
 		
 		*(x++) = r;
 		
 	}
-	
-	// Don't send ETX until we have written data for next pass so we won't get turned off too soon...
 
-	sendbytefully(0x55);		// ETX
+	 //turn on both LEDs for max capacitance
+	 
+	 PORTB = _BV(6) | _BV(7);
+	 
+	 DDRB = 0x00;
+	
+	// Don't send ETX until we have written data for next run so we won't get turned off too soon...
+
+	sendbyte(0x55);				// ETX
+	
+	_delay_ms(20);
 		
 	sendbytefully(0x55);		// ETX
 	
@@ -185,7 +194,7 @@ void init0(void) {
 	
 	_delay_ms(500);
 	
-	if (match) {					// Light diagnostic LED for final verdict
+	if (match) {					// Light diagnostic LED for final verdict - will never be seen controller running us - but handy for manual checks
 		PORTB = _BV(7);
 		} else {
 		PORTB = _BV(6);
@@ -195,11 +204,10 @@ void init0(void) {
 	
 	 MCUCR = _BV( SE ) | _BV(SM1 ) | _BV(SM0); // Sleep enable (makes sleep instruction work), and sets sleep mode to "Power Down" (the deepest sleep)
  
-	 asm("sleep");
-		
+	 asm("sleep");		
 }
 
-// Main() only gets run once, when we first power up
+// We never make it to main()
  
 int main(void)
 {
